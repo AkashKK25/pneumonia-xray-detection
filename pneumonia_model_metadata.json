@@ -1,0 +1,11 @@
+{
+  "model_name": "pneumonia_model.tflite",
+  "created_date": "2025-03-21",
+  "accuracy": 0.89,
+  "val_accuracy": 0.87,
+  "description": "Base model",
+  "learning_rate": 0.0001,
+  "epochs": 10,
+  "base_model": "MobileNetV2",
+  "test_accuracy": 0.87
+}
