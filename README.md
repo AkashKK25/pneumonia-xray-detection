@@ -39,7 +39,7 @@ The project includes a Streamlit web application that allows users to upload che
 
 ![Web App Screenshot](images/webapp_screenshot.png)
 
-Try the live Web App [here]()
+Try the live Web App [here](https://pneumonia-xray-detection-rg3iw4npjkhxlbjdnsup8w.streamlit.app/)
 
 ## Installation
 
