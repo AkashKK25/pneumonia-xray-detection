@@ -4,7 +4,8 @@ import numpy as np
 from PIL import Image
 import io
 import matplotlib.pyplot as plt
-import matplotlib.cm as cm
+import matplotlib
+import os
 
 # Set page config
 st.set_page_config(
@@ -13,10 +14,21 @@ st.set_page_config(
     layout="wide"
 )
 
+# Function to get available models
+def get_available_models():
+    models_dir = "models"
+    # Check if directory exists
+    if not os.path.exists(models_dir):
+        return []
+    
+    # Get all .tflite files
+    model_files = [f for f in os.listdir(models_dir) if f.endswith('.tflite')]
+    return model_files
+
 @st.cache_resource
-def load_model():
+def load_model(model_path):
     # Load the TFLite model
-    interpreter = tf.lite.Interpreter(model_path="models/pneumonia_model.tflite")
+    interpreter = tf.lite.Interpreter(model_path=model_path)
     interpreter.allocate_tensors()
     return interpreter
 
@@ -60,7 +72,7 @@ def generate_gradcam(interpreter, img):
     heatmap = np.uint8(255 * img_edges)
     
     # Use jet colormap
-    colormap = cm.get_cmap("jet")
+    colormap = matplotlib.colormaps["jet"]
     colored_heatmap = colormap(heatmap)[:, :, :3]
     
     # Convert back to uint8
@@ -85,17 +97,51 @@ def main():
     
     **How to use:**
     1. Upload a chest X-ray image
-    2. The model will analyze the image
-    3. View the prediction and confidence level
+    2. Select a model from the dropdown
+    3. The model will analyze the image
+    4. View the prediction and confidence level
     
     **Model Details:**
     - Architecture: MobileNetV2 with custom classification head
     - Accuracy on test set: ~90%
     """)
     
+    # Model selection
+    st.sidebar.header("Model Selection")
+    available_models = get_available_models()
+    
+    if not available_models:
+        st.sidebar.warning("No models found in the 'models' directory. Please add .tflite models.")
+        selected_model = None
+    else:
+        selected_model = st.sidebar.selectbox(
+            "Choose a model",
+            available_models,
+            index=0,
+            help="Select the model you want to use for prediction"
+        )
+        
+        # Display model info
+        st.sidebar.markdown(f"**Selected Model:** {selected_model}")
+        
+        # Try to load model metadata if available
+        metadata_path = os.path.join("models", f"{os.path.splitext(selected_model)[0]}_metadata.json")
+        if os.path.exists(metadata_path):
+            import json
+            with open(metadata_path, 'r') as f:
+                metadata = json.load(f)
+            
+            st.sidebar.subheader("Model Details")
+            for key, value in metadata.items():
+                if key == "accuracy" or key == "val_accuracy" or key.endswith("_accuracy"):
+                    # Format as percentage
+                    st.sidebar.markdown(f"**{key.replace('_', ' ').title()}:** {value:.2%}")
+                else:
+                    st.sidebar.markdown(f"**{key.replace('_', ' ').title()}:** {value}")
+    
     st.sidebar.header("Developer")
-    st.sidebar.markdown("Created by [Your Name]")
-    st.sidebar.markdown("[GitHub Repository](https://github.com/YourUsername/pneumonia-xray-detection)")
+    st.sidebar.markdown("Created by Akash Kondaparthi")
+    st.sidebar.markdown("[GitHub Repository](https://github.com/AkashKK25/pneumonia-xray-detection)")
     
     # Main content
     col1, col2 = st.columns(2)
@@ -104,7 +150,7 @@ def main():
         st.subheader("Upload X-ray Image")
         uploaded_file = st.file_uploader("Choose a chest X-ray image...", type=["jpg", "jpeg", "png"])
         
-        if uploaded_file is not None:
+        if uploaded_file is not None and selected_model is not None:
             # Load and display the image
             image = Image.open(uploaded_file).convert('RGB')
             st.image(image, caption="Uploaded X-ray", use_column_width=True)
@@ -113,7 +159,8 @@ def main():
             processed_image = preprocess_image(image)
             
             # Get prediction
-            interpreter = load_model()
+            model_path = os.path.join("models", selected_model)
+            interpreter = load_model(model_path)
             prediction = predict(interpreter, processed_image)
             
             # Show prediction
@@ -132,12 +179,17 @@ def main():
             # Check for high risk cases
             if prediction > 0.8:
                 st.warning("⚠️ High confidence pneumonia detection. Immediate medical consultation recommended.")
+        
+        elif uploaded_file is not None and selected_model is None:
+            st.error("Please add model files to the 'models' directory and restart the application.")
     
     with col2:
-        if uploaded_file is not None:
+        if uploaded_file is not None and selected_model is not None:
             st.subheader("Model Interpretation")
             
             # Generate GradCAM visualization
+            model_path = os.path.join("models", selected_model)
+            interpreter = load_model(model_path)
             heatmap = generate_gradcam(interpreter, processed_image[0])
             
             # Display the heatmap
@@ -147,10 +199,66 @@ def main():
             **What am I looking at?**
             
             The heatmap overlay highlights regions of the X-ray that the model is focusing on to make its prediction. 
-            Warmer colors (red, yellow) indicate areas of higher importance for the model's decision.
+            Brighter colors (pixels) indicate areas of higher importance for the model's decision.
             
             In pneumonia cases, the model typically focuses on areas with opacity or consolidation in the lungs.
             """)
+    
+    # Model comparison section (when multiple models are available)
+    if uploaded_file is not None and len(available_models) > 1:
+        st.markdown("---")
+        st.subheader("Compare All Models")
+        
+        if st.button("Run analysis with all available models"):
+            # Create a dataframe to store results
+            results = []
+            
+            # Create progress bar
+            progress_bar = st.progress(0)
+            
+            # Analyze with each model
+            for i, model_name in enumerate(available_models):
+                # Update progress
+                progress_bar.progress((i+1)/len(available_models))
+                
+                # Load model and predict
+                model_path = os.path.join("models", model_name)
+                model_interpreter = load_model(model_path)
+                model_prediction = predict(model_interpreter, processed_image)
+                
+                # Store results
+                prediction_class = "Pneumonia" if model_prediction > 0.5 else "Normal"
+                confidence = model_prediction if model_prediction > 0.5 else 1 - model_prediction
+                
+                results.append({
+                    "Model": model_name,
+                    "Prediction": prediction_class,
+                    "Confidence": float(confidence)
+                })
+            
+            # Create comparison visualization
+            import pandas as pd
+            results_df = pd.DataFrame(results)
+            
+            # Display as table
+            st.dataframe(results_df)
+            
+            # Create bar chart for confidence levels
+            st.subheader("Confidence Comparison")
+            chart_data = pd.DataFrame({
+                'Model': results_df['Model'],
+                'Confidence': results_df['Confidence'] * 100  # Convert to percentage
+            })
+            
+            st.bar_chart(chart_data.set_index('Model'))
+            
+            # Show consensus result
+            pneumonia_count = sum(1 for r in results if r["Prediction"] == "Pneumonia")
+            normal_count = sum(1 for r in results if r["Prediction"] == "Normal")
+            
+            consensus = "Pneumonia" if pneumonia_count > normal_count else "Normal"
+            st.subheader(f"Consensus Prediction: {consensus}")
+            st.markdown(f"*{pneumonia_count} of {len(results)} models predicted Pneumonia*")
     
     # Additional information
     st.markdown("---")

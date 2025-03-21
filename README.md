@@ -2,13 +2,12 @@
 
 ![Python](https://img.shields.io/badge/Python-3.8+-blue.svg)
 ![TensorFlow](https://img.shields.io/badge/TensorFlow-2.13-orange.svg)
-![License](https://img.shields.io/badge/License-MIT-green.svg)
 
 ## Project Overview
 
 This project implements a deep learning model to detect pneumonia from chest X-ray images. Using transfer learning with MobileNetV2, the model achieves high accuracy in distinguishing between normal and pneumonia-affected lungs.
 
-![Sample X-rays](https://raw.githubusercontent.com/YourUsername/pneumonia-xray-detection/main/images/sample_xrays.png)
+![Sample X-rays](images/sample_xrays.png)
 
 ## Features
 
@@ -38,19 +37,26 @@ The model is trained on the Chest X-Ray Images (Pneumonia) dataset from Kaggle, 
 
 The project includes a Streamlit web application that allows users to upload chest X-ray images and receive instant predictions with confidence levels and visual explanations.
 
-![Web App Screenshot](https://raw.githubusercontent.com/YourUsername/pneumonia-xray-detection/main/images/webapp_screenshot.png)
+![Web App Screenshot](images/webapp_screenshot.png)
+
+Try the live Web App [here]()
 
 ## Installation
 
 ### Prerequisites
 - Python 3.8+
 - pip
+- streamlit
+- tensorflow
+- numpy
+- Pillow
+- matplotlib
 
 ### Setup Instructions
 
 1. Clone the repository:
    ```
-   git clone https://github.com/YourUsername/pneumonia-xray-detection.git
+   git clone https://github.com/AkashKK25/pneumonia-xray-detection.git
    cd pneumonia-xray-detection
    ```
 
@@ -61,8 +67,8 @@ The project includes a Streamlit web application that allows users to upload che
 
 3. Download the model (or train your own following the notebook):
    ```
-   # Download pre-trained model from releases
-   # Or train your own using the Jupyter notebook
+   # Download pre-trained model from the gihub page 'models/'
+   # Or train your own using the Jupyter notebook from 'notebooks/'
    ```
 
 4. Run the web app:
@@ -92,10 +98,10 @@ pneumonia-xray-detection/
 
 ## Training Your Own Model
 
-1. Download the dataset from [Kaggle](https://www.kaggle.com/datasets/paultimothymooney/chest-xray-pneumonia)
-2. Open and run `notebooks/pneumonia_classification.ipynb` in Google Colab or locally (GPU recommended)
-3. Download the trained model files from Colab
-4. Place model files in the `models/` directory
+1. Download the dataset from [Kaggle](https://www.kaggle.com/datasets/paultimothymooney/chest-xray-pneumonia) and extract it to he `data` folder.
+2. Open and run `notebooks/pneumonia_classification.ipynb` in Google Colab or locally (GPU recommended).
+3. Download the trained model files from Colab.
+4. Place model files in the `models/` directory.
 
 ## Deployment
 
@@ -110,19 +116,8 @@ The app can be deployed to Streamlit Cloud for free:
 
 - **Architecture**: MobileNetV2 (pre-trained on ImageNet) with custom classification head
 - **Transfer Learning**: Initial training with frozen base layers, followed by fine-tuning
-- **Data Augmentation**: Rotation, zoom, shift, and flip to improve generalization
+- **Data Augmentation**: Rotation, zoom, shift, and flip applied to improve generalization
 - **Optimization**: Learning rate scheduling and early stopping to prevent overfitting
-
-## Future Improvements
-
-- [ ] Multi-class classification for different pneumonia types (viral vs. bacterial)
-- [ ] Integration with DICOM medical imaging standard
-- [ ] Explainable AI features with more advanced visualization techniques
-- [ ] Mobile deployment using TensorFlow Lite
-
-## License
-
-This project is licensed under the MIT License - see the LICENSE file for details.
 
 ## Acknowledgments
 
@@ -131,6 +126,6 @@ This project is licensed under the MIT License - see the LICENSE file for detail
 
 ## Contact
 
-[Your Name] - [your.email@example.com]
+[Akash Kumar Kondaparthi](AkashKK25.github.io/Data-Portfolio) - [akashkondaparthi@gmail.com](mailto:akashkkondaparthi@gmail.com)
 
-Project Link: [https://github.com/YourUsername/pneumonia-xray-detection](https://github.com/YourUsername/pneumonia-xray-detection)
+Project Link: [https://github.com/AkashKK25/pneumonia-xray-detection.git](https://github.com/AkashKK25/pneumonia-xray-detection.git)
