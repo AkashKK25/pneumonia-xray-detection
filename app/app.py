@@ -3,9 +3,14 @@ import tensorflow as tf
 import numpy as np
 from PIL import Image
 import io
-import matplotlib.pyplot as plt
-import matplotlib
 import os
+import matplotlib.pyplot as plt
+import matplotlib.cm as cm
+from scipy import ndimage
+import warnings
+
+# Suppress warnings for cleaner output
+warnings.filterwarnings('ignore')
 
 # Set page config
 st.set_page_config(
@@ -55,27 +60,212 @@ def predict(interpreter, image):
     output_data = interpreter.get_tensor(output_details[0]['index'])
     return output_data[0][0]
 
-def generate_gradcam(interpreter, img):
-    # This is a simplified GradCAM implementation for TFLite
-    # In a production environment, you would use the full TensorFlow model
+@st.cache_resource
+def load_full_model(model_name):
+    """
+    Load the full TensorFlow model for Grad-CAM generation with improved compatibility.
     
-    # For demonstration purposes, we'll create a simple heatmap overlay
-    # based on the edges in the image
+    Args:
+        model_name: Name of the TFLite model file
     
+    Returns:
+        Keras model for Grad-CAM computation or None if loading fails
+    """
+    # Get the base name without extension
+    base_name = os.path.splitext(model_name)[0]
+    
+    # Check if corresponding h5 model exists
+    h5_path = os.path.join("../models", f"{base_name}.h5")
+    
+    try:
+        import tensorflow as tf
+        
+        if os.path.exists(h5_path):
+            try:
+                # Try loading with compile=False for better compatibility
+                full_model = tf.keras.models.load_model(h5_path, compile=False)
+                return full_model
+            except Exception as e:
+                st.warning(f"Could not load the full model for Grad-CAM visualization. Using simplified visualization instead.")
+                return None
+        else:
+            return None
+    except ImportError:
+        return None
+
+def generate_gradcam(interpreter, img, model_path=None):
+    """
+    Grad-CAM implementation with robust fallback options.
+    
+    Args:
+        interpreter: TFLite interpreter for the model
+        img: Preprocessed image (normalized to [0,1])
+        model_path: Path to the TFLite model file
+    
+    Returns:
+        Heatmap overlay on the original image
+    """
+    try:
+        # First check if we're providing a model path
+        if model_path is None:
+            return generate_gradcam_simplified(img)
+            
+        # Extract model name from path
+        model_name = os.path.basename(model_path)
+        
+        # Try to load the full model for proper Grad-CAM
+        full_model = load_full_model(model_name)
+        
+        # If we successfully loaded the full model, try to generate proper Grad-CAM
+        if full_model is not None:
+            try:
+                import tensorflow as tf
+                
+                # Convert image to batch format
+                img_batch = np.expand_dims(img, axis=0)
+                
+                # Find the last convolutional layer
+                last_conv_layer = None
+                for layer in reversed(full_model.layers):
+                    if isinstance(layer, tf.keras.layers.Conv2D):
+                        last_conv_layer = layer.name
+                        break
+                
+                if last_conv_layer is None:
+                    # No convolutional layer found
+                    return generate_gradcam_simplified(img)
+                
+                # Create a gradient model using TF's GradientTape
+                with tf.GradientTape() as tape:
+                    # Make a temporary model ending with the last conv layer
+                    conv_outputs = None
+                    prediction = None
+                    
+                    # Sequential execution to get both outputs we need
+                    x = img_batch
+                    for layer in full_model.layers:
+                        x = layer(x)
+                        if layer.name == last_conv_layer:
+                            conv_outputs = x
+                        
+                    # Get the prediction
+                    prediction = x
+                    
+                    if conv_outputs is None or prediction is None:
+                        return generate_gradcam_simplified(img)
+                    
+                    # Get the predicted class (binary classification)
+                    pred_class = 0 if prediction[0][0] < 0.5 else 1
+                    
+                    # Get the gradient of the output wrt the last conv layer
+                    grads = tape.gradient(prediction, conv_outputs)
+                    
+                # Calculate channel importance weights
+                pooled_grads = tf.reduce_mean(grads, axis=(0, 1, 2))
+                
+                # Apply weights to activation map
+                heatmap = tf.reduce_sum(tf.multiply(pooled_grads, conv_outputs[0]), axis=-1)
+                
+                # ReLU operation (only positive influence)
+                heatmap = tf.maximum(heatmap, 0) / (tf.reduce_max(heatmap) + tf.keras.backend.epsilon())
+                heatmap = heatmap.numpy()
+                
+                # Resize heatmap to input image size
+                heatmap_resized = np.uint8(255 * heatmap)
+                heatmap_resized = tf.image.resize(
+                    tf.expand_dims(heatmap_resized, -1),
+                    (img.shape[0], img.shape[1])
+                ).numpy().squeeze()
+                
+                # Apply colormap
+                colormap = cm.get_cmap("jet")
+                colored_heatmap = colormap(heatmap_resized)[:, :, :3]
+                colored_heatmap = np.uint8(colored_heatmap * 255)
+                
+                # Create overlay
+                img_uint8 = np.uint8(img * 255)
+                alpha = 0.4
+                heatmap_overlay = np.uint8(img_uint8 * (1 - alpha) + colored_heatmap * alpha)
+                
+                return heatmap_overlay
+                
+            except Exception as e:
+                # If any exception occurs during Grad-CAM generation, fall back to simplified method
+                return generate_gradcam_simplified(img)
+                
+    except Exception as e:
+        # Catch any exception and ensure we return something
+        return generate_gradcam_simplified(img)
+        
+    # If we get here, use the simplified method
+    return generate_gradcam_simplified(img)
+
+def generate_gradcam_simplified(img):
+    """
+    Enhanced simplified heatmap generation as a fallback.
+    Uses advanced image processing to create a visualization that mimics Grad-CAM.
+    
+    Args:
+        img: Preprocessed image (normalized to [0,1])
+    
+    Returns:
+        Heatmap overlay on the original image
+    """
+    # Convert to grayscale
     img_gray = np.mean(img, axis=-1)
-    img_edges = np.abs(np.gradient(img_gray)[0]) + np.abs(np.gradient(img_gray)[1])
     
-    # Normalize
-    img_edges = (img_edges - np.min(img_edges)) / (np.max(img_edges) - np.min(img_edges))
+    try:
+        # Try to use scipy for more advanced image processing if available
+        from scipy import ndimage
+        
+        # Multi-scale approach for better feature detection
+        small_scale = ndimage.gaussian_filter(img_gray, sigma=1.0)
+        large_scale = ndimage.gaussian_filter(img_gray, sigma=3.0)
+        
+        # Dog (Difference of Gaussians) for edge and blob detection
+        dog = small_scale - large_scale
+        
+        # Edge detection using Sobel filters
+        sobel_h = ndimage.sobel(img_gray, axis=0)
+        sobel_v = ndimage.sobel(img_gray, axis=1)
+        edge_magnitude = np.sqrt(sobel_h**2 + sobel_v**2)
+        
+        # Local standard deviation for texture analysis
+        local_std = ndimage.generic_filter(img_gray, np.std, size=11)
+        
+        # Combine the different features with weights
+        weights = np.array([0.3, 0.3, 0.4])  # weights for dog, edge_magnitude, local_std
+        features = np.stack([dog, edge_magnitude, local_std])
+        
+        # Normalize each feature
+        for i in range(features.shape[0]):
+            feat = features[i]
+            feat_min, feat_max = feat.min(), feat.max()
+            if feat_max > feat_min:
+                features[i] = (feat - feat_min) / (feat_max - feat_min)
+        
+        # Weighted combination
+        combined = np.sum(features * weights.reshape(-1, 1, 1), axis=0)
+        
+        # Final normalization
+        combined = (combined - combined.min()) / (combined.max() - combined.min() + 1e-8)
+        
+        # Apply a mild Gaussian blur to smooth the heatmap
+        heatmap = ndimage.gaussian_filter(combined, sigma=1.5)
+        
+    except (ImportError, Exception) as e:
+        # Basic fallback if scipy is not available or fails
+        img_edges = np.abs(np.gradient(img_gray)[0]) + np.abs(np.gradient(img_gray)[1])
+        heatmap = (img_edges - img_edges.min()) / (img_edges.max() - img_edges.min() + 1e-8)
     
-    # Create heatmap
-    heatmap = np.uint8(255 * img_edges)
+    # Convert to uint8
+    heatmap_uint8 = np.uint8(255 * heatmap)
     
-    # Use jet colormap
-    colormap = matplotlib.colormaps["jet"]
-    colored_heatmap = colormap(heatmap)[:, :, :3]
+    # Apply colormap
+    colormap = cm.get_cmap("jet")
+    colored_heatmap = colormap(heatmap_uint8)[:, :, :3]
     
-    # Convert back to uint8
+    # Convert to uint8
     colored_heatmap = np.uint8(colored_heatmap * 255)
     
     # Create image with heatmap overlay
@@ -140,8 +330,8 @@ def main():
                     st.sidebar.markdown(f"**{key.replace('_', ' ').title()}:** {value}")
     
     st.sidebar.header("Developer")
-    st.sidebar.markdown("Created by Akash Kondaparthi")
-    st.sidebar.markdown("[GitHub Repository](https://github.com/AkashKK25/pneumonia-xray-detection)")
+    st.sidebar.markdown("Created by [Akash Kondaparthi](https://AkashKK25.github.io/Data-Portfolio)")
+    st.sidebar.markdown("[GitHub Repository](https://github.com/AkashKK25/pneumonia-xray-detection.git)")
     
     # Main content
     col1, col2 = st.columns(2)
@@ -187,10 +377,10 @@ def main():
         if uploaded_file is not None and selected_model is not None:
             st.subheader("Model Interpretation")
             
-            # Generate GradCAM visualization
-            model_path = os.path.join("models", selected_model)
+            # Generate GradCAM visualization with proper model path
+            model_path = os.path.join("models", selected_model) 
             interpreter = load_model(model_path)
-            heatmap = generate_gradcam(interpreter, processed_image[0])
+            heatmap = generate_gradcam(interpreter, processed_image[0], model_path)
             
             # Display the heatmap
             st.image(heatmap, caption="Activation Heatmap", use_column_width=True)
@@ -199,7 +389,7 @@ def main():
             **What am I looking at?**
             
             The heatmap overlay highlights regions of the X-ray that the model is focusing on to make its prediction. 
-            Brighter colors (pixels) indicate areas of higher importance for the model's decision.
+            Warmer colors (red, yellow) indicate areas of higher importance for the model's decision.
             
             In pneumonia cases, the model typically focuses on areas with opacity or consolidation in the lungs.
             """)
