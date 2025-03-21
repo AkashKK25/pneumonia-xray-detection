@@ -34,4 +34,4 @@ model.compile(
 )
 
 # Model summary
-model.summary()
+print(model.summary())
